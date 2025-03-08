@@ -80,7 +80,7 @@ impl ClientExt for Client {
 				branches.pop().ok_or_else(move || anyhow!("couldn't select latest stable branch"))
 			}
 			Selector::Alias(s) => {
-				bail!("alias {s:?} is not supported; supported aliases for `update` are `latest` and `stable`");
+				bail!("alias {s:?} is not supported; supported aliases are `latest` and `stable`");
 			}
 			Selector::Super(s) => {
 				branches.find(move |b| s.is_sub_version_of(b.name()))
