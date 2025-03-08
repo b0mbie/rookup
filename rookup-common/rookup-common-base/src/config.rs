@@ -16,7 +16,7 @@ use toml_edit::{
 /// Configuration for the main Rookup CLI and Rookup proxies.
 // TODO: Documentation for this should be public!
 #[derive(documented::Documented, documented::DocumentedFields, field_access::FieldAccess, serde::Serialize)]
-#[derive(Default, Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub struct ConfigData {
@@ -26,6 +26,16 @@ pub struct ConfigData {
 	pub aliases: FxHashMap<String, String>,
 	/// See [`Source`].
 	pub source: Source,
+}
+
+impl Default for ConfigData {
+	fn default() -> Self {
+		Self {
+			default: "stable".into(),
+			aliases: FxHashMap::default(),
+			source: Source::default(),
+		}
+	}
 }
 
 /// Configuration for downloading SourcePawn toolchains from an external server.

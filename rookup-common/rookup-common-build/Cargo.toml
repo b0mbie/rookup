@@ -1,6 +1,5 @@
 [package]
 name = "rookup-common-build"
-version = "0.1.0"
 edition = "2021"
 description = "Generator of Needed Stuff for Rookup (mostly having to do with documentation)"
 

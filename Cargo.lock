@@ -733,7 +733,7 @@ dependencies = [
 
 [[package]]
 name = "rookup-common-base"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "dirs",
  "documented",
@@ -748,7 +748,7 @@ dependencies = [
 
 [[package]]
 name = "rookup-common-build"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "rookup-common-base",
