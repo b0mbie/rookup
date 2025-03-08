@@ -1,0 +1,44 @@
+name: Rust
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_and_test:
+    name: Build & Test
+    strategy:
+      fail-fast: false
+      matrix: 
+        platform:
+          - runner: ubuntu-24.04
+            suffix: linux
+            target: x86_64-unknown-linux-gnu
+            rookup: rookup
+            rookup_spcomp: rookup-spcomp
+          - runner: windows-2022
+            suffix: windows
+            target: x86_64-pc-windows-msvc
+            rookup: rookup.exe
+            rookup_spcomp: rookup-spcomp.exe
+    runs-on: ${{ matrix.platform.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.platform.target }}
+      - name: Build binary
+        run: cargo build --verbose --target ${{ matrix.platform.target }} --release
+      - name: Run unit tests
+        run: cargo test --verbose --target ${{ matrix.platform.target }} --release
+      - name: Format artifact name
+        run: echo "ARTIFACT_NAME=${GITHUB_REPOSITORY#$GITHUB_REPOSITORY_OWNER/}" >> $GITHUB_ENV
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}-${{ matrix.platform.suffix }}
+          path: |
+            target/${{ matrix.platform.target }}/release/${{ matrix.platform.rookup }}
+            target/${{ matrix.platform.target }}/release/${{ matrix.platform.rookup_spcomp }}

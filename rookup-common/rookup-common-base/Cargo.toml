@@ -1,0 +1,15 @@
+[package]
+name = "rookup-common-base"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dirs = "6.0.0"
+rancor = { version = "0.1.0", default-features = false }
+toml_edit = { version = "0.22.23", features = ["serde"] }
+serde = { version = "1.0.217", features = ["derive"] }
+thiserror = "2.0.11"
+itoa = "1.0.14"
+rustc-hash = "2.1.1"
+documented = "0.9.1"
+field_access = "0.1.11"

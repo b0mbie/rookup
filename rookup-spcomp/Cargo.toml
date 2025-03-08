@@ -1,0 +1,9 @@
+[package]
+name = "rookup-spcomp"
+description = "Proxy for SourcePawn compilers that integrates with Rookup"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.96"
+rookup-common = { path = "../rookup-common" }

@@ -1,0 +1,17 @@
+[package]
+name = "rookup"
+description = "An unofficial (SourceMod) SourcePawn compiler multiplexer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rookup-common = { path = "../rookup-common" }
+anyhow = "1.0.95"
+clap = { version = "4.5.31", features = ["derive"] }
+quick-xml = { version = "0.37.2", features = ["escape-html"] }
+thiserror = "2.0.11"
+ureq = "3.0.5"
+zip = { version = "2.2.2", default-features = false, features = ["bzip2", "deflate", "deflate64", "lzma", "zstd"] }
+flate2 = "1.0.35"
+tar = "0.4.44"
+clean-path = "0.2.1"

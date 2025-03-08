@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = [
+	"rookup-common",
+	"rookup-spcomp",
+	"rookup",
+]
+
+[profile.release]
+opt-level = 3
+strip = "debuginfo"
+lto = "fat"

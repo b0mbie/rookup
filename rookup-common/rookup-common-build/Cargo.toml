@@ -1,0 +1,10 @@
+[package]
+name = "rookup-common-build"
+version = "0.1.0"
+edition = "2021"
+description = "Generator of Needed Stuff for Rookup (mostly having to do with documentation)"
+
+[dependencies]
+anyhow = "1.0.97"
+rookup-common-base = { path = "../rookup-common-base" }
+rustc-hash = "2.1.1"
