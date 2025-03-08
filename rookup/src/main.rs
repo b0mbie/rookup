@@ -83,14 +83,14 @@ fn real_main() -> AResult<()> {
 	let cli = Cli::parse();
 	match cli.command {
 		Command::Config => {
-			let config = Config::open_default(false)?;
+			let config = Config::open_create(false)?;
 			println!("@{}", config.path.display());
 			println!("{:#?}", config.with_doc.data());
 		}
 
 		Command::Default { default: new_default } => {
 			if let Some(new_default) = new_default {
-				let mut config = Config::open_default(true)?;
+				let mut config = Config::open_create(true)?;
 				let old_default = &config.with_doc.data().default;
 				println!("{old_default} => {new_default}");
 				if old_default != &new_default {
@@ -98,12 +98,12 @@ fn real_main() -> AResult<()> {
 					config.rewrite()?;
 				}
 			} else {
-				println!("{}", Config::open_default(false)?.with_doc.data().default);
+				println!("{}", Config::open_create(false)?.with_doc.data().default);
 			}
 		}
 
 		Command::Alias { alias, version: value } => {
-			let mut config = Config::open_default(true)?;
+			let mut config = Config::open_create(true)?;
 			if let Some(version) = value {
 				config.with_doc.set_alias(alias, version);
 				config.rewrite()?;
@@ -132,7 +132,7 @@ fn real_main() -> AResult<()> {
 		}
 
 		Command::Update { selector, redownload, alias } => {
-			let mut config = Config::open_default(true)?;
+			let mut config = Config::open_create(true)?;
 
 			let selector = unwrap_selector(selector, &config);
 			let parsed_selector = Selector::parse(&selector);
@@ -179,7 +179,7 @@ fn real_main() -> AResult<()> {
 		}
 	
 		Command::Install { selector, redownload } => {
-			let mut config = Config::open_default(true)?;
+			let mut config = Config::open_create(true)?;
 
 			let parsed_selector = Selector::parse(&selector);
 

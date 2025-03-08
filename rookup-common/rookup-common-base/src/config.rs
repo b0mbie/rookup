@@ -78,6 +78,11 @@ pub enum ConfigError {
 		error: IoError,
 		config_path: PathBuf,
 	},
+	#[error("failed to create config home directory at {config_home}: {error}")]
+	ConfigCreateHome {
+		error: IoError,
+		config_home: PathBuf,
+	},
 	#[error("failed to create default config at {config_path}: {error}")]
 	ConfigCreateDefault {
 		error: IoError,
@@ -107,14 +112,7 @@ macro_rules! handle_err {
 }
 
 impl Config {
-	pub fn open(config_path: PathBuf, write: bool) -> Result<Self, ConfigError> {
-		let mut file = handle_err!(
-			File::options().read(true).write(write).open(&config_path);
-			error => ConfigError::ConfigOpen {
-				error,
-				config_path,
-			}
-		);
+	pub fn with_file(mut file: File, config_path: PathBuf) -> Result<Self, ConfigError> {
 		let text = {
 			let mut buffer = String::new();
 			handle_err!(
@@ -140,6 +138,17 @@ impl Config {
 			file,
 			with_doc: config,
 		})
+	}
+
+	pub fn open(config_path: PathBuf, write: bool) -> Result<Self, ConfigError> {
+		let file = handle_err!(
+			File::options().read(true).write(write).open(&config_path);
+			error => ConfigError::ConfigOpen {
+				error,
+				config_path,
+			}
+		);
+		Self::with_file(file, config_path)
 	}
 
 	pub fn rewrite(&mut self) -> IoResult<String> {

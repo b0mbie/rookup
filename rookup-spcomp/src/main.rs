@@ -46,10 +46,11 @@ enum NotFoundBailKind {
 }
 
 fn spcomp_main(args: impl Iterator<Item = OsString>) -> AResult<Option<i32>> {
-	let (toolchain, source) = current_toolchain().map_err(move |e| anyhow!("failed to get current toolchain: {e}"))?;
+	let data = Config::open_default(false)?.with_doc.into();
+	let (toolchain, source) = current_toolchain(&data)
+		.map_err(move |e| anyhow!("failed to get current toolchain: {e}"))?;
 
 	let parsed = Selector::parse(&toolchain);
-	let data = Config::open_default(false)?.with_doc.into();
 	let toolchain_path = match find_toolchain(&data, parsed) {
 		Ok(p) => p,
 		Err(FindToolchainError::LatestNotFound(version)) => {

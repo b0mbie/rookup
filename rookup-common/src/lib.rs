@@ -2,13 +2,19 @@ use std::{
 	env::{
 		var, VarError,
 	},
-	fs::write,
+	fs::{
+		File, create_dir_all,
+	},
+	io::{
+		Write, Seek, Result as IoResult,
+	},
+	path::Path,
 };
 
 pub use rookup_common_base::*;
 
 /// Return the name and source (as [`ToolchainSource`]) of the current toolchain.
-pub fn current_toolchain() -> Result<(String, ToolchainSource), CurrentToolchainError> {
+pub fn current_toolchain(data: &ConfigData) -> Result<(String, ToolchainSource), CurrentToolchainError> {
 	match var("ROOKUP_TOOLCHAIN") {
 		Ok(toolchain) => {
 			return Ok((toolchain, ToolchainSource::Env))
@@ -17,39 +23,64 @@ pub fn current_toolchain() -> Result<(String, ToolchainSource), CurrentToolchain
 		Err(VarError::NotUnicode(..)) => return Err(CurrentToolchainError::ToString),
 	}
 
-	let config = Config::open_default(false)?;
-	let data: ConfigData = config.with_doc.into();
 	Ok((data.default.to_string(), ToolchainSource::Config))
 }
 
-macro_rules! handle_err {
-	($expr:expr; $error:ident => $err:expr) => {
-		match $expr {
-			Ok(v) => v,
-			Err($error) => return Err($err),
-		}
-	};
-}
-
 pub trait ConfigExt: Sized {
+	/// Open the configuration file at its default path.
 	fn open_default(with_write: bool) -> Result<Self, ConfigError>;
+
+	/// Open the configuration file at its default path, writing a file with default values if necessary.
+	fn open_create(with_write: bool) -> Result<Self, ConfigError>;
 }
 impl ConfigExt for Config {
 	fn open_default(with_write: bool) -> Result<Self, ConfigError> {
-		let Some(config_path) = crate::config_path() else {
+		let Some(config_home) = config_home() else {
+			return Err(ConfigError::ConfigPath)
+		};
+		Self::open(config_file_path(config_home.clone()), with_write)
+	}
+
+	fn open_create(with_write: bool) -> Result<Self, ConfigError> {
+		let Some(config_home) = config_home() else {
 			return Err(ConfigError::ConfigPath)
 		};
 		
-		if !config_path.exists() {
-			handle_err!(
-				write(&config_path, include_bytes!(concat!(env!("OUT_DIR"), "/config.toml")));
-				error => ConfigError::ConfigCreateDefault {
+		let config_path = config_file_path(config_home.clone());
+		let file = if !config_path.exists() {
+			create_dir_all(&config_home)
+				.map_err(|error| ConfigError::ConfigCreateHome {
 					error,
-					config_path,
-				}
-			);
-		}
+					config_home: config_home.clone(),
+				})?;
 
-		Self::open(config_path, with_write)
+			fn create_default_config(config_path: &Path) -> IoResult<File> {
+				let mut file = File::options()
+					.create(true).truncate(true)
+					.write(true)
+					.read(true)
+					.open(config_path)?;
+				file.write_all(include_bytes!(concat!(env!("OUT_DIR"), "/config.toml")))?;
+				file.flush()?;
+				file.rewind()?;
+				Ok(file)
+			}
+
+			create_default_config(&config_path)
+				.map_err(|error| ConfigError::ConfigCreateDefault {
+					error,
+					config_path: config_path.clone(),
+				})?
+		} else {
+			File::options()
+				.read(true).write(with_write)
+				.open(&config_path)
+				.map_err(|error| ConfigError::ConfigOpen {
+					error,
+					config_path: config_path.clone(),
+				})?
+		};
+
+		Self::with_file(file, config_path)
 	}
 }

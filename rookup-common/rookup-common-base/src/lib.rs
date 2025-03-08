@@ -24,7 +24,7 @@ fn home(mut parent_dir: PathBuf) -> PathBuf {
 }
 
 /// Consume the config home directory and return the path to the config file.
-fn config_file_path(mut config_home: PathBuf) -> PathBuf {
+pub fn config_file_path(mut config_home: PathBuf) -> PathBuf {
 	config_home.push("config.toml");
 	config_home
 }
@@ -38,12 +38,11 @@ fn toolchain_home_path(mut home: PathBuf) -> PathBuf {
 	home
 }
 
-/// Return the path to the configuration file, or [`None`] if it couldn't be determined.
-pub fn config_path() -> Option<PathBuf> {
+/// Return the path to the configuration directory, or [`None`] if it couldn't be determined.
+pub fn config_home() -> Option<PathBuf> {
 	var_os("ROOKUP_CONFIG_HOME").map(PathBuf::from)
 		.or_else(dirs::config_dir)
 		.map(home)
-		.map(config_file_path)
 }
 
 /// File name of the compiler executable that is to be used by this target.
