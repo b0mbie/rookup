@@ -1,7 +1,7 @@
 [package]
 name = "rookup-common"
 description = "Common utilities used for the Rookup multiplexer and proxy"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [build-dependencies]
@@ -9,3 +9,4 @@ rookup-common-build = { path = "./rookup-common-build" }
 
 [dependencies]
 rookup-common-base = { path = "./rookup-common-base" }
+thiserror = "2.0.12"

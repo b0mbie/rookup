@@ -70,6 +70,26 @@ impl<'a> Selector<'a> {
 			.map(Self::Super)
 			.unwrap_or(Self::Alias(s))
 	}
+
+	pub fn test(&self, data: &ConfigData, version: &str) -> bool {
+		match self {
+			Self::Alias(name) => {
+				data.aliases.get(*name).is_some_and(move |a| a == version)
+			}
+			Self::Super(super_version) => version.is_sub_version_of(super_version),
+		}
+	}
+
+	pub const fn is_alias(&self) -> bool {
+		matches!(self, Self::Alias(..))
+	}
+
+	pub const fn to_alias(self) -> Option<&'a str> {
+		match self {
+			Self::Alias(s) => Some(s),
+			_ => None,
+		}
+	}
 }
 
 impl Deref for Selector<'_> {
@@ -95,41 +115,57 @@ impl fmt::Display for Selector<'_> {
 	}
 }
 
-/// Error that occurred in [`current_toolchain`].
-#[derive(Debug, thiserror::Error)]
-pub enum CurrentToolchainError {
-	#[error("{0}")]
-	Config(#[from] ConfigError),
-	#[error("toolchain string does not contain valid UTF-8")]
-	ToString,
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FoundToolchain {
+	pub name: String,
+	pub kinded: FoundToolchainKinded,
 }
 
-/// Enumeration of sources that specify the current toolchain.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ToolchainSource {
-	/// Current toolchain is specified by an environment variable.
-	Env,
-	/// Current toolchain is specified by the configuration file.
-	Config,
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FoundToolchainKinded {
+	Latest {
+		home: PathBuf,
+	},
+	Aliased {
+		path: PathBuf,
+	},
+}
+
+impl FoundToolchain {
+	pub fn into_path(self) -> PathBuf {
+		match self.kinded {
+			FoundToolchainKinded::Latest { mut home } => {
+				home.push(self.name);
+				home
+			}
+			FoundToolchainKinded::Aliased { path } => path,
+		}
+	}
 }
 
 /// Search for a toolchain using `selector`, given `config`.
-pub fn find_toolchain(config: &ConfigData, selector: Selector<'_>) -> Result<PathBuf, FindToolchainError> {
+pub fn find_toolchain(config: &ConfigData, selector: Selector<'_>) -> Result<FoundToolchain, FindToolchainError> {
 	match selector {
 		Selector::Super(s) => {
-			let (name, mut home) = find_latest_toolchain_of(s)
+			let (name, home) = find_latest_toolchain_of(s)
 				.ok_or_else(move || FindToolchainError::LatestNotFound(s.to_string()))?;
-			home.push(name);
-			Ok(home)
+			Ok(FoundToolchain {
+				name,
+				kinded: FoundToolchainKinded::Latest { home },
+			})
 		}
 		Selector::Alias(s) => {
 			let version = config.aliases.get(s)
 				.ok_or_else(move || FindToolchainError::NoAliasDefault(s.to_string()))?;
-			find_toolchain_path(OsStr::new(version))
+			let path = find_toolchain_path(OsStr::new(version))
 				.ok_or_else(move || FindToolchainError::NotFound {
 					version: version.to_string(),
 					alias: s.to_string(),
-				})
+				})?;
+			Ok(FoundToolchain {
+				name: version.clone(),
+				kinded: FoundToolchainKinded::Aliased { path },
+			})
 		}
 	}
 }
@@ -156,7 +192,7 @@ pub fn is_installed(version: &OsStr) -> bool {
 }
 
 /// Find the location of an installed toolchain of the specified `version`.
-pub fn find_toolchain_path(version: &OsStr) -> Option<PathBuf> {
+pub fn  find_toolchain_path(version: &OsStr) -> Option<PathBuf> {
 	ToolchainHomes::new().find_map(move |home| {
 		let path = home.join(version);
 		path.exists().then_some(path)
@@ -202,7 +238,7 @@ impl Iterator for ToolchainVersions {
 /// Iterator over directories located inside of another directory.
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct DirNames(ReadDir);
+pub struct DirNames(pub ReadDir);
 impl Iterator for DirNames {
 	type Item = IoResult<OsString>;
 	fn next(&mut self) -> Option<Self::Item> {

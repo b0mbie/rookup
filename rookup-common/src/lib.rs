@@ -23,7 +23,7 @@ pub fn current_toolchain(data: &ConfigData) -> Result<(String, ToolchainSource),
 		Err(VarError::NotUnicode(..)) => return Err(CurrentToolchainError::ToString),
 	}
 
-	Ok((data.default.to_string(), ToolchainSource::Config))
+	Ok((data.default.clone(), ToolchainSource::Config))
 }
 
 pub trait ConfigExt: Sized {
@@ -83,4 +83,22 @@ impl ConfigExt for Config {
 
 		Self::with_file(file, config_path)
 	}
+}
+
+/// Enumeration of sources that specify the current toolchain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ToolchainSource {
+	/// Current toolchain is specified by an environment variable.
+	Env,
+	/// Current toolchain is specified by the configuration file.
+	Config,
+}
+
+/// Error that occurred in [`current_toolchain`].
+#[derive(Debug, thiserror::Error)]
+pub enum CurrentToolchainError {
+	#[error("{0}")]
+	Config(#[from] ConfigError),
+	#[error("toolchain string does not contain valid UTF-8")]
+	ToString,
 }
