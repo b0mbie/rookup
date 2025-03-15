@@ -32,8 +32,8 @@ impl Default for ConfigData {
 	fn default() -> Self {
 		Self {
 			default: "stable".into(),
-			aliases: FxHashMap::default(),
-			source: Source::default(),
+			aliases: Default::default(),
+			source: Default::default(),
 		}
 	}
 }
