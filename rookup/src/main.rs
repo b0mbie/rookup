@@ -10,7 +10,7 @@ use rookup_common::{
 		Version, version_ord,
 	},
 	find_toolchain, find_latest_toolchain_of, is_installed, toolchain_home,
-	Config, ConfigExt,
+	Config, ConfigData, ConfigExt,
 	ToolchainVersions, Selector,
 	DirNames,
 };
@@ -82,16 +82,15 @@ pub enum Command {
 	Remove {
 		selector: String,
 	},
-	/// Delete all SourcePawn toolchains that aren't used.
+	/// List all SourcePawn toolchains that aren't used.
 	/// 
 	/// Any toolchain version that has an alias associated with it is marked as used.
 	/// The default version is also implied to be in use.
-	Purge {
-		/// If specified, don't actually delete any toolchains, only printing the unused toolchain versions along with
-		/// their paths.
-		#[arg(long)]
-		dry_run: bool,
-	},
+	ListUnused,
+	/// Delete all SourcePawn toolchains that aren't used.
+	/// 
+	/// See the subcommand `list-unused` for more information.
+	Purge,
 }
 
 fn real_main() -> AResult<()> {
@@ -242,7 +241,7 @@ fn real_main() -> AResult<()> {
 		}
 
 		Command::Remove { selector } => {
-			let data: rookup_common::ConfigData = Config::open_default(false)?.with_doc.into();
+			let data: ConfigData = Config::open_default(false)?.with_doc.into();
 	
 			let parsed_selector = Selector::parse(&selector);
 			let (toolchains, home) = installed_toolchains()?;
@@ -262,43 +261,27 @@ fn real_main() -> AResult<()> {
 			}
 		}
 
-		Command::Purge { dry_run }  => {
-			let data: rookup_common::ConfigData = Config::open_default(false)?.with_doc.into();
+		Command::ListUnused => {
+			let data: ConfigData = Config::open_default(false)?.with_doc.into();
 
-			let (toolchains, home) = installed_toolchains()?;
-			
-			let unused_toolchains = {
-				let mut toolchains = {
-					let result: Result<FxHashSet<_>, _> = toolchains
-						.filter_map(move |r| match r {
-							Ok(v) => match v.into_string() {
-								Ok(v) => Some(Ok(v)),
-								Err(..) => None,
-							},
-							Err(e) => Some(Err(e)),
-						})
-						.collect();
-					result.with_context(|| anyhow!("failed to read directory contents of {home:?}"))?
-				};
-
-				if let Ok(default_toolchain) = find_toolchain(&data, Selector::parse(&data.default)) {
-					toolchains.remove(&default_toolchain.name);
-				}
-				for version in data.aliases.values() {
-					toolchains.remove(version);
-				}
-
-				toolchains
-			};
-
-			for toolchain in unused_toolchains {
-				print!("{toolchain} => ");
-				let path = home.join(toolchain);
+			let UnusedToolchains { home, versions } = UnusedToolchains::new(&data)?;
+			for version in versions {
+				print!("{version} => ");
+				let path = home.join(version);
 				println!("{}", path.display());
-				if !dry_run {
-					remove_dir_all(&path)
-						.with_context(|| anyhow!("failed to recursively delete toolchain at {path:?}"))?;
-				}
+			}
+		}
+
+		Command::Purge  => {
+			let data: ConfigData = Config::open_default(false)?.with_doc.into();
+
+			let UnusedToolchains { home, versions } = UnusedToolchains::new(&data)?;
+			for version in versions {
+				print!("{version} => ");
+				let path = home.join(version);
+				println!("{}", path.display());
+				remove_dir_all(&path)
+					.with_context(|| anyhow!("failed to recursively delete toolchain at {path:?}"))?;
 			}
 		}
 	}
@@ -324,6 +307,42 @@ fn installed_toolchains() -> AResult<(DirNames, PathBuf)> {
 	let home = toolchain_home().context("couldn't get toolchain destination directory")?;
 	let toolchains = read_dir(&home).map(DirNames).with_context(|| anyhow!("failed to iterate over {home:?}"))?;
 	Ok((toolchains, home))
+}
+
+struct UnusedToolchains {
+	pub home: PathBuf,
+	pub versions: FxHashSet<String>,
+}
+
+impl UnusedToolchains {
+	pub fn new(data: &ConfigData) -> AResult<Self> {
+		let (versions, home) = installed_toolchains()?;
+
+		let mut versions = {
+			let result: Result<FxHashSet<_>, _> = versions
+				.filter_map(move |r| match r {
+					Ok(v) => match v.into_string() {
+						Ok(v) => Some(Ok(v)),
+						Err(..) => None,
+					},
+					Err(e) => Some(Err(e)),
+				})
+				.collect();
+			result.with_context(|| anyhow!("failed to read directory contents of {home:?}"))?
+		};
+
+		if let Ok(default_toolchain) = find_toolchain(data, Selector::parse(&data.default)) {
+			versions.remove(&default_toolchain.name);
+		}
+		for version in data.aliases.values() {
+			versions.remove(version);
+		}
+
+		Ok(Self {
+			home,
+			versions
+		})
+	}
 }
 
 struct InstallVersion<'a> {
