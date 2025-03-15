@@ -52,7 +52,7 @@ fn spcomp_main(args: impl Iterator<Item = OsString>) -> AResult<Option<i32>> {
 
 	let parsed = Selector::parse(&toolchain);
 	let toolchain_path = match find_toolchain(&data, parsed) {
-		Ok(p) => p,
+		Ok(toolchain) => toolchain.into_path(),
 		Err(FindToolchainError::LatestNotFound(version)) => {
 			return Err(NotFoundBail {
 				source,

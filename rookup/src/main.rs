@@ -1,6 +1,6 @@
 use anyhow::{
 	anyhow, bail,
-	Result as AResult,
+	Context, Result as AResult,
 };
 use clap::{
 	Parser, Subcommand,
@@ -9,14 +9,16 @@ use rookup_common::{
 	version::{
 		Version, version_ord,
 	},
-	find_latest_toolchain_of, is_installed, toolchain_home,
+	find_toolchain, find_latest_toolchain_of, is_installed, toolchain_home,
 	Config, ConfigExt,
 	ToolchainVersions, Selector,
+	DirNames,
 };
+use rustc_hash::FxHashSet;
 use std::{
 	ffi::OsStr,
 	fs::{
-		File, create_dir_all,
+		File, create_dir_all, read_dir, remove_dir_all,
 	},
 	io::{
 		copy as io_copy,
@@ -61,14 +63,13 @@ pub enum Command {
 	/// Fetch the latest version of SourcePawn, download it if needed, and default to it.
 	Update {
 		selector: Option<String>,
+		/// Set this alias to the version that was installed.
+		/// 
+		/// If not specified, then, if the selector string specifies an alias, it is used as the alias.
+		alias: Option<String>,
 		/// Re-download the toolchain, regardless of whether it is already installed or not.
 		#[arg(long)]
 		redownload: bool,
-		/// Set this alias to the version that was installed.
-		/// 
-		/// If not specified, then the selector string is used as the alias.
-		#[arg(long)]
-		alias: Option<String>,
 	},
 	/// Install a specific SourcePawn toolchain.
 	Install {
@@ -77,6 +78,15 @@ pub enum Command {
 		#[arg(long)]
 		redownload: bool,
 	},
+	/// Delete a specific SourcePawn toolchain.
+	Remove {
+		selector: String,
+	},
+	/// Delete all SourcePawn toolchains that aren't used.
+	/// 
+	/// Any toolchain version that has an alias associated with it is marked as used.
+	/// The default version is also implied to be in use.
+	Purge,
 }
 
 fn real_main() -> AResult<()> {
@@ -103,6 +113,10 @@ fn real_main() -> AResult<()> {
 		}
 
 		Command::Alias { alias, version: value } => {
+			if !Selector::parse(&alias).is_alias() {
+				bail!("alias name {alias:?} is invalid");
+			}
+
 			let mut config = Config::open_create(true)?;
 			if let Some(version) = value {
 				config.with_doc.set_alias(alias, version);
@@ -123,9 +137,7 @@ fn real_main() -> AResult<()> {
 					Err(e) => bail!("couldn't read {}: {e}", home.display())
 				};
 				for result in version_names {
-					let version_name = result.map_err(|e| {
-						anyhow!("encountered error while iterating over {}: {e}", home.display())
-					})?;
+					let version_name = result.with_context(|| anyhow!("encountered error while iterating over {home:?}"))?;
 					println!("  {} => {}", version_name.to_string_lossy(), home.join(&version_name).to_string_lossy());
 				}
 			}
@@ -138,12 +150,12 @@ fn real_main() -> AResult<()> {
 			let parsed_selector = Selector::parse(&selector);
 
 			let client = smdrop_client(&config);
-			let branch = client.select_branch(parsed_selector)?;
+			let branch = client.select_branch(config.with_doc.data(), parsed_selector)?;
 			println!("Remote branch: {}", branch.name());
 
 			let remote = branch.relevant_urls(&client)?
 				.max_by(RelevantUrl::version_ord)
-				.ok_or_else(|| anyhow!("received no versions for branch {:?}", branch.name()))?;
+				.with_context(|| anyhow!("received no versions for branch {:?}", branch.name()))?;
 
 			let remote_ver = remote.version();
 			println!("Remote version: {remote_ver}");
@@ -174,29 +186,32 @@ fn real_main() -> AResult<()> {
 				}.call()?;
 			}
 
-			config.with_doc.set_alias(alias.as_deref().unwrap_or(selector.as_str()), remote_ver);
-			config.rewrite().map_err(move |e| anyhow!("failed to write changes to config: {e}"))?;
+			if let Some(alias) = alias.as_deref().or(parsed_selector.to_alias()) {
+				println!("Alias: {alias}");
+				config.with_doc.set_alias(alias, remote_ver);
+			}
+			config.rewrite().context("failed to write changes to configuration file")?;
 		}
 	
 		Command::Install { selector, redownload } => {
-			let mut config = Config::open_create(true)?;
+			let config = Config::open_create(false)?;
 
 			let parsed_selector = Selector::parse(&selector);
 
 			let client = smdrop_client(&config);
-			let branch = client.select_branch(parsed_selector)?;
+			let branch = client.select_branch(config.with_doc.data(), parsed_selector)?;
 			println!("Remote branch: {}", branch.name());
 
 			let versions = branch.relevant_urls(&client)?;
 			let version = match parsed_selector {
 				Selector::Alias(..) => {
 					versions.max_by(RelevantUrl::version_ord)
-						.ok_or_else(move || anyhow!("received no versions for branch {:?}", branch.name()))?
+						.with_context(move || anyhow!("received no versions for branch {:?}", branch.name()))?
 				}
 				Selector::Super(requested) => {
 					versions.filter(move |v| v.version().is_sub_version_of(requested))
 						.max_by(RelevantUrl::version_ord)
-						.ok_or_else(move || anyhow!("couldn't find version {requested:?} in branch {:?}", branch.name()))?
+						.with_context(move || anyhow!("couldn't find version {requested:?} in branch {:?}", branch.name()))?
 				}
 			};
 
@@ -208,7 +223,6 @@ fn real_main() -> AResult<()> {
 
 			let needs_download = redownload || !is_installed(OsStr::new(remote_ver));
 			println!("Needs download: {}", bool_display(needs_download));
-
 			if needs_download {
 				let destination = toolchain_destination(remote_ver)?;
 				println!("Destination: {}", destination.display());
@@ -219,10 +233,65 @@ fn real_main() -> AResult<()> {
 					max_bytes: config.with_doc.data().source.max_download_size,
 					destination,
 				}.call()?;
+			}
+		}
 
-				if let Selector::Alias(alias) = parsed_selector {
-					config.with_doc.set_alias(alias, remote_ver);
+		Command::Remove { selector } => {
+			let data: rookup_common::ConfigData = Config::open_default(false)?.with_doc.into();
+	
+			let parsed_selector = Selector::parse(&selector);
+			let (toolchains, home) = installed_toolchains()?;
+			for version in toolchains {
+				let version = version.with_context(|| anyhow!("failed to read directory contents of {home:?}"))?;
+				let version = version.into_string().ok().context("installed version name is not UTF-8")?;
+				if parsed_selector.test(&data, &version) {
+					print!("{version} => ");
+					let path = home.join(version);
+					println!("{}", path.display());
+					if let Err(e) = remove_dir_all(&path)
+						.with_context(|| anyhow!("failed to recursively delete toolchain at {path:?}"))
+					{
+						println!("{e}");
+					}
 				}
+			}
+		}
+
+		Command::Purge => {
+			let data: rookup_common::ConfigData = Config::open_default(false)?.with_doc.into();
+
+			let (toolchains, home) = installed_toolchains()?;
+			
+			let unused_toolchains = {
+				let mut toolchains = {
+					let result: Result<FxHashSet<_>, _> = toolchains
+						.filter_map(move |r| match r {
+							Ok(v) => match v.into_string() {
+								Ok(v) => Some(Ok(v)),
+								Err(..) => None,
+							},
+							Err(e) => Some(Err(e)),
+						})
+						.collect();
+					result.with_context(|| anyhow!("failed to read directory contents of {home:?}"))?
+				};
+
+				if let Ok(default_toolchain) = find_toolchain(&data, Selector::parse(&data.default)) {
+					toolchains.remove(&default_toolchain.name);
+				}
+				for version in data.aliases.values() {
+					toolchains.remove(version);
+				}
+
+				toolchains
+			};
+
+			for toolchain in unused_toolchains {
+				print!("{toolchain} => ");
+				let path = home.join(toolchain);
+				println!("{}", path.display());
+				remove_dir_all(&path)
+					.with_context(|| anyhow!("failed to recursively delete toolchain at {path:?}"))?;
 			}
 		}
 	}
@@ -235,14 +304,19 @@ fn real_main() -> AResult<()> {
 }
 
 fn toolchain_destination<P: AsRef<std::path::Path>>(version: P) -> AResult<PathBuf> {
-	let mut buffer = toolchain_home()
-		.ok_or_else(move || anyhow!("couldn't get toolchain destination directory"))?;
+	let mut buffer = toolchain_home().context("couldn't get toolchain destination directory")?;
 	buffer.push(version);
 	Ok(buffer)
 }
 
 fn unwrap_selector(selector: Option<String>, config: &Config) -> String {
 	selector.unwrap_or_else(move || config.with_doc.data().default.clone())
+}
+
+fn installed_toolchains() -> AResult<(DirNames, PathBuf)> {
+	let home = toolchain_home().context("couldn't get toolchain destination directory")?;
+	let toolchains = read_dir(&home).map(DirNames).with_context(|| anyhow!("failed to iterate over {home:?}"))?;
+	Ok((toolchains, home))
 }
 
 struct InstallVersion<'a> {
@@ -255,12 +329,12 @@ struct InstallVersion<'a> {
 impl InstallVersion<'_> {
 	pub fn call(self) -> AResult<()> {
 		let body = self.agent.get(self.url)
-			.call().map_err(move |e| anyhow!("failed to fetch archive: {e}"))?
+			.call().with_context(|| anyhow!("failed to fetch archive at {:?}", self.url))?
 			.into_body().into_with_config()
 			.limit(self.max_bytes);
 
 		let archive_kind = smdrop::ArchiveKind::from_str(self.url)
-			.map_err(move |e| anyhow!("failed to determine archive format: {e}"))?;
+			.with_context(|| anyhow!("failed to determine format of archive at {:?}", self.url))?;
 		let mut archive = smdrop::Archive::new(body, archive_kind)?;
 	
 		for (path, mut entry) in archive.entries()?
@@ -272,7 +346,7 @@ impl InstallVersion<'_> {
 			if !entry.is_dir() {
 				if let Some(parent) = destination_path.parent() {
 					create_dir_all(parent)
-						.map_err(|e| anyhow!("failed to create directories up to {destination_path:?}: {e}"))?;
+						.with_context(|| anyhow!("failed to create directories up to {destination_path:?}"))?;
 				}
 
 				let mut options = File::options();
@@ -282,11 +356,11 @@ impl InstallVersion<'_> {
 				}
 
 				let mut file = options.create(true).truncate(true).write(true).open(&destination_path)
-					.map_err(|e| anyhow!("failed to open {destination_path:?}: {e}"))?;
+					.with_context(|| anyhow!("failed to open {destination_path:?}"))?;
 				eprintln!("{} => {}", path.display(), destination_path.display());
 
 				io_copy(&mut entry, &mut file)
-					.map_err(|e| anyhow!("failed to pipe data of {path:?} to {destination_path:?}: {e}"))?;
+					.with_context(|| anyhow!("failed to pipe data of {path:?} to {destination_path:?}"))?;
 			}
 		}
 	

@@ -1,17 +1,16 @@
 use anyhow::{
-	Result as AResult,
-	anyhow, bail,
+	anyhow, Context, Result as AResult
 };
 use core::cmp::Ordering;
 use rookup_common::{
 	version::{
-		Version, version_ord,
+		version_ord, Version
 	},
-	Config, Selector,
+	Config, ConfigData, Selector,
 };
 
 use crate::smdrop::{
-	Branch, Client, ClientParams, VersionUrl,
+	Branch, Branches, Client, ClientParams, VersionUrl,
 };
 
 pub fn smdrop_client(config: &Config) -> Client {
@@ -58,33 +57,37 @@ impl RelevantUrl {
 	}
 }
 
+fn select_branch_with_ver(mut branches: Branches, version: &str) -> AResult<Branch> {
+	branches.find(move |b| version.is_sub_version_of(b.name()))
+		.with_context(|| anyhow!("couldn't select branch with selector {version:?}"))
+}
+
 pub trait ClientExt {
-	fn select_branch(&self, selector: Selector<'_>) -> AResult<Branch>;
+	fn select_branch(&self, data: &ConfigData, selector: Selector<'_>) -> AResult<Branch>;
 }
 impl ClientExt for Client {
-	fn select_branch(&self, selector: Selector<'_>) -> AResult<Branch> {
+	fn select_branch(&self, data: &ConfigData, selector: Selector<'_>) -> AResult<Branch> {
 		fn branch_ord(a: &Branch, b: &Branch) -> Ordering {
 			version_ord(a.name(), b.name())
 		}
 	
-		let mut branches = self.branches().map_err(|e| anyhow!("couldn't fetch branches: {e}"))?;
+		let branches = self.branches().context("couldn't fetch branches")?;
 		match selector {
 			Selector::Alias("latest") => {
-				branches.max_by(branch_ord)
-					.ok_or_else(move || anyhow!("couldn't select latest branch"))
+				branches.max_by(branch_ord).context("couldn't select latest branch")
 			}
 			Selector::Alias("stable") => {
 				let mut branches: Vec<_> = branches.collect();
 				branches.sort_by(branch_ord);
 				branches.pop();
-				branches.pop().ok_or_else(move || anyhow!("couldn't select latest stable branch"))
+				branches.pop().context("couldn't select latest stable branch")
 			}
 			Selector::Alias(s) => {
-				bail!("alias {s:?} is not supported; supported aliases are `latest` and `stable`");
+				let version = data.aliases.get(s).with_context(|| anyhow!("failed to resolve alias {s:?}"))?;
+				select_branch_with_ver(branches, version)
 			}
 			Selector::Super(s) => {
-				branches.find(move |b| s.is_sub_version_of(b.name()))
-					.ok_or_else(|| anyhow!("couldn't select branch with selector {s:?}"))
+				select_branch_with_ver(branches, s)
 			}
 		}
 	}
