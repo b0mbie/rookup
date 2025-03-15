@@ -86,7 +86,12 @@ pub enum Command {
 	/// 
 	/// Any toolchain version that has an alias associated with it is marked as used.
 	/// The default version is also implied to be in use.
-	Purge,
+	Purge {
+		/// If specified, don't actually delete any toolchains, only printing the unused toolchain versions along with
+		/// their paths.
+		#[arg(long)]
+		dry_run: bool,
+	},
 }
 
 fn real_main() -> AResult<()> {
@@ -138,7 +143,7 @@ fn real_main() -> AResult<()> {
 				};
 				for result in version_names {
 					let version_name = result.with_context(|| anyhow!("encountered error while iterating over {home:?}"))?;
-					println!("  {} => {}", version_name.to_string_lossy(), home.join(&version_name).to_string_lossy());
+					println!("  {} => {}", version_name.to_string_lossy(), home.join(&version_name).display());
 				}
 			}
 		}
@@ -257,7 +262,7 @@ fn real_main() -> AResult<()> {
 			}
 		}
 
-		Command::Purge => {
+		Command::Purge { dry_run }  => {
 			let data: rookup_common::ConfigData = Config::open_default(false)?.with_doc.into();
 
 			let (toolchains, home) = installed_toolchains()?;
@@ -290,8 +295,10 @@ fn real_main() -> AResult<()> {
 				print!("{toolchain} => ");
 				let path = home.join(toolchain);
 				println!("{}", path.display());
-				remove_dir_all(&path)
-					.with_context(|| anyhow!("failed to recursively delete toolchain at {path:?}"))?;
+				if !dry_run {
+					remove_dir_all(&path)
+						.with_context(|| anyhow!("failed to recursively delete toolchain at {path:?}"))?;
+				}
 			}
 		}
 	}
