@@ -9,7 +9,7 @@ use rookup_common::{
 	version::{
 		Version, version_ord,
 	},
-	find_toolchain, find_latest_toolchain_of, is_installed, toolchain_home,
+	current_toolchain, find_toolchain, find_latest_toolchain_of, is_installed, toolchain_home,
 	Config, ConfigData, ConfigExt,
 	ToolchainVersions, Selector,
 	DirNames,
@@ -91,6 +91,8 @@ pub enum Command {
 	/// 
 	/// See the subcommand `list-unused` for more information.
 	Purge,
+	/// Write the directory of the currently selected toolchain to standard output, without a newline.
+	Which,
 }
 
 fn real_main() -> AResult<()> {
@@ -272,7 +274,7 @@ fn real_main() -> AResult<()> {
 			}
 		}
 
-		Command::Purge  => {
+		Command::Purge => {
 			let data: ConfigData = Config::open_default(false)?.with_doc.into();
 
 			let UnusedToolchains { home, versions } = UnusedToolchains::new(&data)?;
@@ -283,6 +285,16 @@ fn real_main() -> AResult<()> {
 				remove_dir_all(&path)
 					.with_context(|| anyhow!("failed to recursively delete toolchain at {path:?}"))?;
 			}
+		}
+
+		Command::Which => {
+			let data = Config::open_default(false)?.with_doc.into();
+			let (toolchain, ..) = current_toolchain(&data)
+				.map_err(move |e| anyhow!("failed to get current toolchain: {e}"))?;
+
+			let parsed = Selector::parse(&toolchain);
+			let toolchain_path = find_toolchain(&data, parsed)?.into_path();
+			print!("{}", toolchain_path.display());
 		}
 	}
 
