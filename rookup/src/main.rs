@@ -128,7 +128,7 @@ fn real_main() -> AResult<()> {
 				config.with_doc.set_alias(alias, version);
 				config.rewrite()?;
 			} else if let Some(version) = config.with_doc.data().aliases.get(&alias) {
-				println!("={version}");
+				println!("{version}");
 			}
 		}
 
