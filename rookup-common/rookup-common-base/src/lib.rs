@@ -41,8 +41,7 @@ fn toolchain_home_path(mut home: PathBuf) -> PathBuf {
 /// Return the path to the configuration directory, or [`None`] if it couldn't be determined.
 pub fn config_home() -> Option<PathBuf> {
 	var_os("ROOKUP_CONFIG_HOME").map(PathBuf::from)
-		.or_else(dirs::config_dir)
-		.map(home)
+		.or_else(move || dirs::config_dir().map(home))
 }
 
 /// File name of the compiler executable that is to be used by this target.

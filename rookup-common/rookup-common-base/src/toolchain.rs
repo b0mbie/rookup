@@ -32,17 +32,13 @@ pub const INCLUDES_PATH: &str = "includes";
 /// Return the path to the toolchain directory, or [`None`] if it couldn't be determined.
 pub fn toolchain_home() -> Option<PathBuf> {
 	var_os("ROOKUP_TOOLCHAIN_HOME").map(PathBuf::from)
-		.or_else(dirs::cache_dir)
-		.map(home)
-		.map(toolchain_home_path)
+		.or_else(move || dirs::cache_dir().map(home).map(toolchain_home_path))
 }
 
 /// Return the path to the custom toolchain directory, or [`None`] if it couldn't be determined.
 pub fn custom_toolchain_home() -> Option<PathBuf> {
 	var_os("ROOKUP_CUSTOM_TOOLCHAIN_HOME").map(PathBuf::from)
-		.or_else(dirs::data_dir)
-		.map(home)
-		.map(toolchain_home_path)
+		.or_else(move || dirs::data_dir().map(home).map(toolchain_home_path))
 }
 
 macro_rules! res_unwrap_or_return {
