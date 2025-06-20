@@ -1,5 +1,6 @@
 use flate2::read::GzDecoder;
 use std::{
+	borrow::Cow,
 	fmt,
 	io::{
 		Cursor, Read, Error as IoError, Result as IoResult,
@@ -82,7 +83,7 @@ pub enum ArchiveError<E> {
 	#[error("{0}")]
 	Io(IoError),
 	#[error("{0}")]
-	ZipInvalid(&'static str),
+	ZipInvalid(Cow<'static, str>),
 	#[error("{0}")]
 	ZipUnsupported(&'static str),
 	#[error("{0}")]
